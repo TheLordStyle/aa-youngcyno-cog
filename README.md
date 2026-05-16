@@ -25,8 +25,17 @@ For each match, the embed shows:
 
 - The cyno character, their corp and alliance, and current cyno skill level.
 - The main character on their auth account, if linked.
-- The auth username and a Discord mention, if the account is linked to
-  Discord.
+- The auth username if the account is linked.
+- The character's Mining Frigate level (the skill that lets them fly a
+  Venture — the cheapest cyno hull in the game), if trained.
+- A ⚠️ flag listing every Venture they currently own with **any cyno
+  generator** actually fitted (regular, industrial, or covert), plus the
+  system the ship is parked in.
+- A 🚨 highlight when the character's last-known active ship is itself
+  a Venture, with the system they're sitting in, **plus** whether that
+  specific ship has a cyno module fitted right now and how much
+  **Liquid Ozone** (the fuel a cyno actually burns) is in its cargo.
+  Both ✅ means they can light at a moment's notice.
 - A ⚠️ flag if the character has no auth ownership at all
   (i.e. it's in corptools via a corp roster scan but no user has claimed it).
 
@@ -34,7 +43,10 @@ For each match, the embed shows:
 
 > **Bob McCynoAlt** `[NEWCO/-NEWA-]` — 42d old, Cyno L4
 > ↳ Main: Alice Maincharacter `[GOODCO/GOOD]`
-> ↳ User: `alice_user` <@123456789012345678>
+> ↳ User: `alice_user`
+> ↳ Venture: Mining Frigate L1
+> ↳ ⚠️ **1× Venture with cyno fitted** — Jita
+> ↳ 🚨 **Currently piloting a Venture** — Jita (✅ cyno, ✅ 400× ozone)
 
 ## Requirements
 
@@ -45,8 +57,11 @@ For each match, the embed shows:
 | [allianceauth-corptools](https://github.com/Solar-Helix-Independent-Transport/allianceauth-corp-tools) | ≥ 2.x |
 | Database | MySQL / MariaDB |
 
-The corptools **Skills** module must be enabled and characters need to have
-registered with the `esi-skills.read_skills.v1` scope.
+The corptools **Skills** and **Assets** modules must be enabled and the
+relevant characters need to have registered with the
+`esi-skills.read_skills.v1` and `esi-assets.read_assets.v1` scopes.
+Without the Assets scope the Venture-with-cyno-fitted check will silently
+return no hits.
 
 ## Install
 
@@ -55,7 +70,7 @@ registered with the `esi-skills.read_skills.v1` scope.
 Add to your AA `requirements.txt`:
 
 ```text
-git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.1.0
+git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.2.0
 ```
 
 Then in `local.py`:
@@ -121,16 +136,26 @@ The cog runs a single SQL query joining:
 
 - `corptools_skill` filtered to type ID 21603 (Cynosural Field Theory) at
   active level ≥ 1
+- `corptools_skill` again (left join) for type ID 32918 (Mining Frigate)
+  to surface Venture-flying capability
 - `corptools_corporationhistory` aggregated to `MIN(start_date)` per
   character (the same age proxy used by corptools' built-in
   `CharacterAgeFilter`)
+- `corptools_characterasset` self-joined to find Venture hulls
+  (type 32880) that have any cyno generator fitted in a high slot
+  (`location_flag LIKE 'HiSlot%'`, `type_id IN (21096, 52694, 28646)` —
+  regular, industrial, covert)
+- `corptools_evelocation` → `eve_sde_solarsystem` to resolve where each
+  flagged Venture is parked
+- `corptools_characterlocation` (joined to the same location/system
+  tables) to detect when the character's last-known active ship is a
+  Venture and surface the system they're in
+- Two scalar subqueries against `corptools_characterasset` keyed on
+  `cl.current_ship_unique` (the unique item_id of that exact ship) to
+  count cyno modules in any high slot and sum Liquid Ozone in the
+  current ship's cargo bay
 - Alliance Auth's `CharacterOwnership` / `UserProfile` to resolve the main
   character and auth user
-- AA's Discord service `DiscordUser` to resolve the Discord ID for `<@uid>`
-  mentions
-
-Mentions in embeds render the user's nickname but do **not** trigger a
-notification ping.
 
 ## Caveats
 
