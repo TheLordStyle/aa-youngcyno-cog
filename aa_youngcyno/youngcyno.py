@@ -23,9 +23,13 @@ CYNO_MODULE_TYPE_IDS = (
 )
 _CYNO_PLACEHOLDERS = ", ".join(["%s"] * len(CYNO_MODULE_TYPE_IDS))
 
+# Shared SELECT clause + JOIN tail used by both bulk and single-char queries.
+# Kept as one string so the two query variants only differ in their filter
+# JOINs/WHEREs and stay visually parallel.
+#
 # `LIKE 'HiSlot%%'` — the `%` is doubled because Django's cursor.execute
 # treats the SQL string as a printf-style template for parameter substitution.
-SQL = f"""
+_SELECT_AND_TAIL = f"""
 SELECT
     ec.character_name              AS cyno_char,
     ec.corporation_ticker          AS cyno_corp,
@@ -59,20 +63,7 @@ SELECT
 FROM corptools_characteraudit ca
 JOIN eveonline_evecharacter ec
     ON ec.id = ca.character_id
-JOIN corptools_skill s
-    ON s.character_id = ca.id
-   AND s.skill_id = %s
-   AND s.active_skill_level >= 1
-JOIN (
-    -- Apply the age threshold inside the aggregate so the joined-back set
-    -- is just "young chars", not "every char in the DB". Without this, the
-    -- subquery propagates one row per character into every downstream
-    -- LEFT JOIN and scalar subquery before the outer WHERE prunes them.
-    SELECT character_id, MIN(start_date) AS first_seen
-    FROM corptools_corporationhistory
-    GROUP BY character_id
-    HAVING first_seen >= DATE_SUB(NOW(), INTERVAL %s DAY)
-) ch ON ch.character_id = ca.id
+{{filter_block}}
 -- Driven from the cyno-module side (very selective: only a handful of
 -- type_ids), then joined up to the parent ship. The previous shape — scan
 -- every ship-asset row then EXISTS — exploded on large asset tables.
@@ -115,19 +106,54 @@ LEFT JOIN authentication_userprofile up
     ON up.user_id = co.user_id
 LEFT JOIN eveonline_evecharacter main
     ON main.id = up.main_character_id
-ORDER BY ch.first_seen DESC
+{{tail}}
 """
 
+# Bulk: require cyno skill + corp-history age threshold.
+SQL_BULK = _SELECT_AND_TAIL.format(
+    filter_block="""\
+JOIN corptools_skill s
+    ON s.character_id = ca.id
+   AND s.skill_id = %s
+   AND s.active_skill_level >= 1
+JOIN (
+    -- Apply the age threshold inside the aggregate so the joined-back set
+    -- is just "young chars", not "every char in the DB". Without this, the
+    -- subquery propagates one row per character into every downstream
+    -- LEFT JOIN and scalar subquery before the outer WHERE prunes them.
+    SELECT character_id, MIN(start_date) AS first_seen
+    FROM corptools_corporationhistory
+    GROUP BY character_id
+    HAVING first_seen >= DATE_SUB(NOW(), INTERVAL %s DAY)
+) ch ON ch.character_id = ca.id""",
+    tail="ORDER BY ch.first_seen DESC",
+)
 
-def _run_query(days: int):
+# Single: no skill filter (so non-cyno-skilled chars still surface for
+# investigation), no age filter, just match by character name.
+SQL_SINGLE = _SELECT_AND_TAIL.format(
+    filter_block="""\
+LEFT JOIN corptools_skill s
+    ON s.character_id = ca.id
+   AND s.skill_id = %s
+LEFT JOIN (
+    SELECT character_id, MIN(start_date) AS first_seen
+    FROM corptools_corporationhistory
+    GROUP BY character_id
+) ch ON ch.character_id = ca.id""",
+    tail="WHERE ec.character_name = %s",
+)
+
+
+def _run_bulk_query(days: int):
     with connection.cursor() as cur:
-        # Param order matches textual order of %s in SQL:
+        # Textual %s order in SQL_BULK:
         #   1. current_cyno_count scalar subquery IN (...) → 3
         #   2. current_ozone_qty  scalar subquery  = %s    → 1
         #   3. cyno skill JOIN    skill_id = %s            → 1
         #   4. corp history HAVING first_seen days         → 1
         #   5. ship_cyno subquery IN (...)                 → 3
-        cur.execute(SQL, [
+        cur.execute(SQL_BULK, [
             *CYNO_MODULE_TYPE_IDS,
             LIQUID_OZONE_TYPE_ID,
             CYNO_SKILL_ID,
@@ -138,12 +164,37 @@ def _run_query(days: int):
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
+def _run_single_query(name: str):
+    with connection.cursor() as cur:
+        # Textual %s order in SQL_SINGLE:
+        #   1. current_cyno_count scalar subquery IN (...) → 3
+        #   2. current_ozone_qty  scalar subquery  = %s    → 1
+        #   3. cyno skill LEFT JOIN skill_id = %s          → 1
+        #   4. ship_cyno subquery IN (...)                 → 3
+        #   5. WHERE ec.character_name = %s                → 1
+        cur.execute(SQL_SINGLE, [
+            *CYNO_MODULE_TYPE_IDS,
+            LIQUID_OZONE_TYPE_ID,
+            CYNO_SKILL_ID,
+            *CYNO_MODULE_TYPE_IDS,
+            name,
+        ])
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
 def _format_row(r: dict) -> str:
     cyno_ally = f"/{r['cyno_ally']}" if r['cyno_ally'] else ""
+    age_part = (
+        f"{r['days_old']}d old" if r['days_old'] is not None else "age unknown"
+    )
+    cyno_part = (
+        f"Cyno L{r['cyno_lvl']}" if r['cyno_lvl'] is not None else "no Cyno skill"
+    )
     head = (
         f"**{r['cyno_char']}** "
         f"`[{r['cyno_corp'] or '-'}{cyno_ally}]` "
-        f"— {r['days_old']}d old, Cyno L{r['cyno_lvl']}"
+        f"— {age_part}, {cyno_part}"
     )
 
     if r['main_char']:
@@ -186,13 +237,9 @@ def _format_row(r: dict) -> str:
     ]))
 
 
-def _build_embeds(rows, days: int):
+def _build_embeds(rows, title: str, empty_message: str = "No matches."):
     if not rows:
-        return [Embed(
-            title=f"Cyno-capable characters younger than {days} days",
-            description="No matches.",
-            colour=0x2ECC71,
-        )]
+        return [Embed(title=title, description=empty_message, colour=0x2ECC71)]
 
     blocks = [_format_row(r) for r in rows]
     embeds, buf, size = [], [], 0
@@ -207,33 +254,38 @@ def _build_embeds(rows, days: int):
 
     out, total = [], len(rows)
     for i, desc in enumerate(embeds, 1):
-        title = f"Cyno-capable characters younger than {days} days"
-        if len(embeds) > 1:
-            title += f" ({i}/{len(embeds)})"
-        e = Embed(title=title, description=desc, colour=0xE67E22)
-        if i == 1:
+        page_title = title + (f" ({i}/{len(embeds)})" if len(embeds) > 1 else "")
+        e = Embed(title=page_title, description=desc, colour=0xE67E22)
+        if i == 1 and total > 1:
             e.set_footer(text=f"{total} match(es)")
         out.append(e)
     return out
 
 
+def _channel_allowed(channel_id: int) -> bool:
+    return channel_id in getattr(
+        settings, "YOUNG_CYNO_DISCORD_BOT_CHANNELS", []
+    )
+
+
 class YoungCyno(commands.Cog):
-    """Identify recently created characters with cyno capability."""
+    """Identify cyno-capable characters."""
 
     def __init__(self, bot):
         self.bot = bot
 
+    # ---- bulk: youngest cyno chars ----------------------------------------
+
     @commands.command(pass_context=True)
     @sender_has_perm('corptools.view_characteraudit')
     async def youngcyno(self, ctx, days: int = 100):
-        if ctx.message.channel.id not in getattr(
-            settings, "YOUNG_CYNO_DISCORD_BOT_CHANNELS", []
-        ):
+        if not _channel_allowed(ctx.message.channel.id):
             return await ctx.message.add_reaction(chr(0x1F44E))
 
         days = max(1, min(days, 365))
-        rows = _run_query(days)
-        for embed in _build_embeds(rows, days):
+        rows = _run_bulk_query(days)
+        title = f"Cyno-capable characters younger than {days} days"
+        for embed in _build_embeds(rows, title):
             await ctx.message.reply(embed=embed)
 
     @commands.slash_command(name='youngcyno', guild_ids=get_all_servers())
@@ -250,8 +302,50 @@ class YoungCyno(commands.Cog):
 
         days = max(1, min(days, 365))
         await ctx.defer()
-        rows = _run_query(days)
-        embeds = _build_embeds(rows, days)
+        rows = _run_bulk_query(days)
+        title = f"Cyno-capable characters younger than {days} days"
+        embeds = _build_embeds(rows, title)
+        await ctx.respond(embed=embeds[0])
+        for e in embeds[1:]:
+            await ctx.followup.send(embed=e)
+
+    # ---- single-char lookup -----------------------------------------------
+
+    @commands.command(pass_context=True)
+    @sender_has_perm('corptools.view_characteraudit')
+    async def cynocheck(self, ctx, *, character: str = None):
+        if not _channel_allowed(ctx.message.channel.id):
+            return await ctx.message.add_reaction(chr(0x1F44E))
+        if not character:
+            return await ctx.message.reply(
+                "Usage: `!cynocheck <character name>`"
+            )
+
+        name = character.strip()
+        rows = _run_single_query(name)
+        title = f"Cyno report: {name}"
+        empty = f"`{name}` not found in corptools (unknown character or not yet scanned)."
+        for embed in _build_embeds(rows, title, empty_message=empty):
+            await ctx.message.reply(embed=embed)
+
+    @commands.slash_command(name='cynocheck', guild_ids=get_all_servers())
+    @option("character", description="Exact character name", required=True)
+    async def slash_cynocheck(self, ctx, character: str):
+        try:
+            in_channels(ctx.channel.id, getattr(
+                settings, "YOUNG_CYNO_DISCORD_BOT_CHANNELS", []
+            ))
+        except commands.MissingPermissions:
+            return await ctx.respond(
+                "This command isn't available in this channel.", ephemeral=True
+            )
+
+        name = character.strip()
+        await ctx.defer()
+        rows = _run_single_query(name)
+        title = f"Cyno report: {name}"
+        empty = f"`{name}` not found in corptools (unknown character or not yet scanned)."
+        embeds = _build_embeds(rows, title, empty_message=empty)
         await ctx.respond(embed=embeds[0])
         for e in embeds[1:]:
             await ctx.followup.send(embed=e)

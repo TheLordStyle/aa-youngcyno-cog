@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-16
+
+### Added
+- New `!cynocheck <name>` / `/cynocheck character:<name>` command that
+  runs the same per-character report against a single named character.
+  Unlike the bulk `youngcyno` scan, this one drops the cyno-skill and
+  age filters so you can also investigate characters that don't match
+  either pattern (e.g. someone who's clearly cyno-trained on paper but
+  hasn't been caught by the bulk filter yet, or a suspicious old account).
+- The cyno-skill level and character age render gracefully when missing
+  (`no Cyno skill`, `age unknown`) so single-char lookups against
+  not-yet-cyno-trained characters still produce a clean report.
+
+### Changed
+- Refactored the SQL into a shared SELECT/JOIN tail plus two thin
+  filter blocks (bulk: skill+age JOINs; single: name WHERE). Both modes
+  reuse the same per-row formatter and embed builder.
+
 ## [0.3.2] - 2026-05-16
 
 ### Performance
