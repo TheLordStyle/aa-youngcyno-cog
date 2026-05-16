@@ -20,6 +20,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 🚨 highlight when the character's last-known active ship (per
   `corptools_characterlocation`) is a Venture, including the system
   they're currently in.
+- The 🚨 line now also reports whether **that specific Venture** has a
+  cyno module fitted (any of the three types) and the quantity of
+  `Liquid Ozone` (type 16273) in its cargo — the actual consumable
+  required to light a cyno alongside the module. A character in a Venture
+  with both ✅ is the fully-armed signal.
 
 ### Removed
 - Discord user mention (`<@uid>`) from the output. The auth username is

@@ -32,7 +32,10 @@ For each match, the embed shows:
   generator** actually fitted (regular, industrial, or covert), plus the
   system the ship is parked in.
 - A 🚨 highlight when the character's last-known active ship is itself
-  a Venture, with the system they're sitting in.
+  a Venture, with the system they're sitting in, **plus** whether that
+  specific ship has a cyno module fitted right now and how much
+  **Liquid Ozone** (the fuel a cyno actually burns) is in its cargo.
+  Both ✅ means they can light at a moment's notice.
 - A ⚠️ flag if the character has no auth ownership at all
   (i.e. it's in corptools via a corp roster scan but no user has claimed it).
 
@@ -43,7 +46,7 @@ For each match, the embed shows:
 > ↳ User: `alice_user`
 > ↳ Venture: Mining Frigate L1
 > ↳ ⚠️ **1× Venture with cyno fitted** — Jita
-> ↳ 🚨 **Currently piloting a Venture** — Jita
+> ↳ 🚨 **Currently piloting a Venture** — Jita (✅ cyno, ✅ 400× ozone)
 
 ## Requirements
 
@@ -147,6 +150,10 @@ The cog runs a single SQL query joining:
 - `corptools_characterlocation` (joined to the same location/system
   tables) to detect when the character's last-known active ship is a
   Venture and surface the system they're in
+- Two scalar subqueries against `corptools_characterasset` keyed on
+  `cl.current_ship_unique` (the unique item_id of that exact ship) to
+  count cyno modules in any high slot and sum Liquid Ozone in the
+  current ship's cargo bay
 - Alliance Auth's `CharacterOwnership` / `UserProfile` to resolve the main
   character and auth user
 

@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 CYNO_SKILL_ID = 21603            # Cynosural Field Theory
 MINING_FRIGATE_SKILL_ID = 32918  # required to fly a Venture
 VENTURE_TYPE_ID = 32880
+LIQUID_OZONE_TYPE_ID = 16273     # required in cargo to actually light a cyno
 
 # Every high-slot module that lights a cyno. Covert is included even though
 # it can't physically fit on a Venture — the asset-fitted self-join filters
@@ -44,7 +45,23 @@ SELECT
     vc.fitted_count                AS venture_cyno_count,
     vc.systems                     AS venture_cyno_systems,
     cl.current_ship_id             AS current_ship_type,
-    cl_sys.name                    AS current_system
+    cl_sys.name                    AS current_system,
+    (
+        SELECT COUNT(*)
+        FROM corptools_characterasset cur_m
+        WHERE cur_m.character_id = ca.id
+          AND cur_m.location_id  = cl.current_ship_unique
+          AND cur_m.location_flag LIKE 'HiSlot%%'
+          AND cur_m.type_id IN ({_CYNO_PLACEHOLDERS})
+    )                              AS current_cyno_count,
+    (
+        SELECT COALESCE(SUM(cur_o.quantity), 0)
+        FROM corptools_characterasset cur_o
+        WHERE cur_o.character_id = ca.id
+          AND cur_o.location_id  = cl.current_ship_unique
+          AND cur_o.location_flag = 'Cargo'
+          AND cur_o.type_id = %s
+    )                              AS current_ozone_qty
 FROM corptools_characteraudit ca
 JOIN eveonline_evecharacter ec
     ON ec.id = ca.character_id
@@ -100,7 +117,16 @@ ORDER BY ch.first_seen DESC
 
 def _run_query(days: int):
     with connection.cursor() as cur:
+        # Param order matches textual order of %s in SQL:
+        #   1. current_cyno_count scalar subquery  IN (...)      → 3
+        #   2. current_ozone_qty  scalar subquery  type_id = %s  → 1
+        #   3. cyno skill JOIN    skill_id = %s                  → 1
+        #   4. mining frigate JOIN skill_id = %s                 → 1
+        #   5. venture_cyno subquery IN (...) + v.type_id = %s   → 3 + 1
+        #   6. WHERE first_seen >= NOW() - INTERVAL %s DAY       → 1
         cur.execute(SQL, [
+            *CYNO_MODULE_TYPE_IDS,
+            LIQUID_OZONE_TYPE_ID,
             CYNO_SKILL_ID,
             MINING_FRIGATE_SKILL_ID,
             *CYNO_MODULE_TYPE_IDS,
@@ -151,7 +177,13 @@ def _format_row(r: dict) -> str:
 
     if r['current_ship_type'] == VENTURE_TYPE_ID:
         where = r['current_system'] or 'unknown system'
-        current_ship_line = f"↳ 🚨 **Currently piloting a Venture** — {where}"
+        cyno_mark = "✅ cyno" if (r['current_cyno_count'] or 0) else "❌ no cyno"
+        ozone = int(r['current_ozone_qty'] or 0)
+        ozone_mark = f"✅ {ozone}× ozone" if ozone else "❌ no ozone"
+        current_ship_line = (
+            f"↳ 🚨 **Currently piloting a Venture** — {where} "
+            f"({cyno_mark}, {ozone_mark})"
+        )
     else:
         current_ship_line = ""
 
