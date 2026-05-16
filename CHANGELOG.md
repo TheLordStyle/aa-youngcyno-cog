@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-05-16
+
+### Performance
+- The cyno-fitted-ship subquery is now driven from the cyno-module side
+  instead of the ship side. The 0.3.0 shape (`FROM corptools_characterasset
+  ship WHERE EXISTS (...)`) had no selective outer filter, so MariaDB scanned
+  every ship-asset row and re-evaluated the EXISTS against the same table
+  for each one — expensive on any non-trivial asset table. The inverted
+  shape (`FROM corptools_characterasset cyno_mod ... JOIN
+  corptools_characterasset ship ON ship.item_id = cyno_mod.location_id`)
+  starts from a tiny working set (matched by `type_id IN (cyno modules)
+  AND location_flag LIKE 'HiSlot%'`) and joins up to the parent ship per
+  matching cyno. Same output, dramatically fewer rows touched.
+- `COUNT(*)` / `GROUP_CONCAT(...)` swapped for
+  `COUNT(DISTINCT ship.item_id)` / `GROUP_CONCAT(DISTINCT ...)` to
+  deduplicate in the edge case of more than one cyno module fitted to the
+  same ship.
+
 ## [0.3.0] - 2026-05-16
 
 ### Changed
