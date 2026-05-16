@@ -1,2 +1,156 @@
 # aa-youngcyno-cog
-Discord bot cog for identifying young characters with the ability to cyno in eve online that are signed up in character audit in eve alliance auth.
+
+[![Python](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
+[![Alliance Auth](https://img.shields.io/badge/Alliance%20Auth-5.x-green.svg)](https://gitlab.com/allianceauth/allianceauth)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+An [Alliance Auth](https://gitlab.com/allianceauth/allianceauth) Discord cog
+that surfaces recently created characters with the ability to light a
+cynosural field — a paranoia tool for leadership and recruiters.
+
+Built on top of [aadiscordbot](https://github.com/pvyParts/allianceauth-discordbot)
+and [allianceauth-corptools](https://github.com/Solar-Helix-Independent-Transport/allianceauth-corp-tools).
+
+## What it does
+
+Looks for every character that:
+
+- Has **Cynosural Field Theory** trained to level 1 or higher (the prerequisite
+  for both regular and covert cynos).
+- First appears in their corporation history within the last *N* days
+  (default 100). This is corptools' standard proxy for character age —
+  every new EVE character auto-joins their NPC starter corp at creation.
+
+For each match, the embed shows:
+
+- The cyno character, their corp and alliance, and current cyno skill level.
+- The main character on their auth account, if linked.
+- The auth username and a Discord mention, if the account is linked to
+  Discord.
+- A ⚠️ flag if the character has no auth ownership at all
+  (i.e. it's in corptools via a corp roster scan but no user has claimed it).
+
+### Example output
+
+> **Bob McCynoAlt** `[NEWCO/-NEWA-]` — 42d old, Cyno L4
+> ↳ Main: Alice Maincharacter `[GOODCO/GOOD]`
+> ↳ User: `alice_user` <@123456789012345678>
+
+## Requirements
+
+| Component | Version |
+|---|---|
+| Alliance Auth | ≥ 5.0 |
+| [allianceauth-discordbot](https://github.com/pvyParts/allianceauth-discordbot) | recent |
+| [allianceauth-corptools](https://github.com/Solar-Helix-Independent-Transport/allianceauth-corp-tools) | ≥ 2.x |
+| Database | MySQL / MariaDB |
+
+The corptools **Skills** module must be enabled and characters need to have
+registered with the `esi-skills.read_skills.v1` scope.
+
+## Install
+
+### Production (pinned)
+
+Add to your AA `requirements.txt`:
+
+```text
+git+https://github.com/yourorg/aa-youngcyno-cog.git@v0.1.0
+```
+
+Then in `local.py`:
+
+```python
+DISCORD_BOT_COGS += [
+    "aa_youngcyno.youngcyno",
+]
+
+YOUNG_CYNO_DISCORD_BOT_CHANNELS = [
+    111111111111111111,   # #leadership
+    222222222222222222,   # #recruiters
+]
+```
+
+Rebuild and restart auth.
+
+### Development
+
+For iteration without rebuilding the whole stack, bind-mount a checkout
+into the discordbot container and install it editable:
+
+```bash
+docker compose exec allianceauth_discordbot \
+    pip install -e /opt/cogs/aa-youngcyno-cog
+
+docker compose restart allianceauth_discordbot
+```
+
+Note that editable installs don't survive a `docker compose down` and
+rebuild — production state always returns to whatever's pinned in
+`requirements.txt`.
+
+## Settings
+
+| Setting | Default | Description |
+|---|---|---|
+| `YOUNG_CYNO_DISCORD_BOT_CHANNELS` | `[]` | List of Discord channel IDs where the command works. Empty list = blocked everywhere. |
+
+## Usage
+
+Prefix command:
+
+```text
+!youngcyno          # default: characters younger than 100 days
+!youngcyno 30       # characters younger than 30 days
+```
+
+Slash command:
+
+```text
+/youngcyno
+/youngcyno days:30
+```
+
+Requires the AA permission `corptools.view_characteraudit`. Outside the
+allow-listed channels the prefix command reacts with 👎 and the slash
+command responds with an ephemeral error.
+
+## How it works
+
+The cog runs a single SQL query joining:
+
+- `corptools_skill` filtered to type ID 21603 (Cynosural Field Theory) at
+  active level ≥ 1
+- `corptools_corporationhistory` aggregated to `MIN(start_date)` per
+  character (the same age proxy used by corptools' built-in
+  `CharacterAgeFilter`)
+- Alliance Auth's `CharacterOwnership` / `UserProfile` to resolve the main
+  character and auth user
+- AA's Discord service `DiscordUser` to resolve the Discord ID for `<@uid>`
+  mentions
+
+Mentions in embeds render the user's nickname but do **not** trigger a
+notification ping.
+
+## Caveats
+
+- **Update lag.** corptools updates each character roughly once per day by
+  default. For a real-time check on a specific suspect, use corptools' force
+  refresh in the UI.
+- **Brand new characters with no corp history yet** won't match this query.
+  They're rare, but if you want to catch them too, the cog could be extended
+  to fall back to ESI's public `/characters/{id}/` endpoint.
+- **Alpha vs Omega.** This filter uses `active_skill_level ≥ 1`, which
+  reflects what the character can use under their current clone state.
+  Swap to `trained_skill_level` in the query for the more paranoid check
+  that catches alpha-clone characters who've trained the skill but can't
+  currently use it.
+
+## Contributing
+
+Bug reports and PRs welcome. Please open an issue first for anything beyond
+trivial fixes so we can talk about it.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
