@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aa-youngcyno-cog"
+version = "0.1.0"
+description = "Alliance Auth Discord cog to flag young characters with cyno capability"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [
+    { name = "Your Name" },
+]
+keywords = ["allianceauth", "eve-online", "discord", "aadiscordbot", "corptools"]
+classifiers = [
+    "Environment :: Plugins",
+    "Framework :: Django",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Games/Entertainment",
+]
+
+# Intentionally no `dependencies = [...]` here — Alliance Auth, aadiscordbot
+# and allianceauth-corptools must already be installed in the host environment.
+# Declaring them would risk pip resolving conflicting versions on install.
+
+[project.urls]
+Repository = "https://github.com/yourorg/aa-youngcyno-cog"
+Issues = "https://github.com/yourorg/aa-youngcyno-cog/issues"
+Changelog = "https://github.com/yourorg/aa-youngcyno-cog/blob/main/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+include = ["aa_youngcyno*"]
