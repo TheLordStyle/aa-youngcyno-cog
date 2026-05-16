@@ -64,9 +64,14 @@ JOIN corptools_skill s
    AND s.skill_id = %s
    AND s.active_skill_level >= 1
 JOIN (
+    -- Apply the age threshold inside the aggregate so the joined-back set
+    -- is just "young chars", not "every char in the DB". Without this, the
+    -- subquery propagates one row per character into every downstream
+    -- LEFT JOIN and scalar subquery before the outer WHERE prunes them.
     SELECT character_id, MIN(start_date) AS first_seen
     FROM corptools_corporationhistory
     GROUP BY character_id
+    HAVING first_seen >= DATE_SUB(NOW(), INTERVAL %s DAY)
 ) ch ON ch.character_id = ca.id
 -- Driven from the cyno-module side (very selective: only a handful of
 -- type_ids), then joined up to the parent ship. The previous shape — scan
@@ -110,7 +115,6 @@ LEFT JOIN authentication_userprofile up
     ON up.user_id = co.user_id
 LEFT JOIN eveonline_evecharacter main
     ON main.id = up.main_character_id
-WHERE ch.first_seen >= DATE_SUB(NOW(), INTERVAL %s DAY)
 ORDER BY ch.first_seen DESC
 """
 
@@ -121,14 +125,14 @@ def _run_query(days: int):
         #   1. current_cyno_count scalar subquery IN (...) → 3
         #   2. current_ozone_qty  scalar subquery  = %s    → 1
         #   3. cyno skill JOIN    skill_id = %s            → 1
-        #   4. ship_cyno EXISTS subquery IN (...)          → 3
-        #   5. WHERE first_seen days                       → 1
+        #   4. corp history HAVING first_seen days         → 1
+        #   5. ship_cyno subquery IN (...)                 → 3
         cur.execute(SQL, [
             *CYNO_MODULE_TYPE_IDS,
             LIQUID_OZONE_TYPE_ID,
             CYNO_SKILL_ID,
-            *CYNO_MODULE_TYPE_IDS,
             days,
+            *CYNO_MODULE_TYPE_IDS,
         ])
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
