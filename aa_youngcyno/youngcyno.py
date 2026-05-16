@@ -159,8 +159,6 @@ def _format_row(r: dict) -> str:
     else:
         main_line = "↳ ⚠️ **No auth ownership** — orphan / corp-roster only"
 
-    user_line = f"↳ User: `{r['auth_user']}`" if r['auth_user'] else ""
-
     venture_line = (
         f"↳ Venture: Mining Frigate L{r['venture_lvl']}"
         if r['venture_lvl'] else ""
@@ -173,7 +171,7 @@ def _format_row(r: dict) -> str:
             f"↳ ⚠️ **{count}× Venture with cyno fitted** — {systems}"
         )
     else:
-        cyno_asset_line = ""
+        cyno_asset_line = "↳ ✅ no Venture+cyno fitted in any hangar"
 
     if r['current_ship_type'] == VENTURE_TYPE_ID:
         where = r['current_system'] or 'unknown system'
@@ -188,7 +186,7 @@ def _format_row(r: dict) -> str:
         current_ship_line = ""
 
     return "\n".join(filter(None, [
-        head, main_line, user_line, venture_line,
+        head, main_line, venture_line,
         cyno_asset_line, current_ship_line,
     ]))
 
