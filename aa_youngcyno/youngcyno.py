@@ -13,14 +13,9 @@ from django.db import connection
 logger = logging.getLogger(__name__)
 
 CYNO_SKILL_ID = 21603            # Cynosural Field Theory
-MINING_FRIGATE_SKILL_ID = 32918  # required to fly a Venture
-VENTURE_TYPE_ID = 32880
 LIQUID_OZONE_TYPE_ID = 16273     # required in cargo to actually light a cyno
 
-# Every high-slot module that lights a cyno. Covert is included even though
-# it can't physically fit on a Venture — the asset-fitted self-join filters
-# by what's actually mounted, so listing it is harmless and future-proofs
-# the check if we ever broaden the hull filter beyond Venture.
+# Every high-slot module that lights a cyno.
 CYNO_MODULE_TYPE_IDS = (
     21096,  # Cynosural Field Generator I        — regular
     52694,  # Industrial Cynosural Field Generator I
@@ -41,10 +36,9 @@ SELECT
     au.username                    AS auth_user,
     DATEDIFF(NOW(), ch.first_seen) AS days_old,
     s.active_skill_level           AS cyno_lvl,
-    mf.active_skill_level          AS venture_lvl,
-    vc.fitted_count                AS venture_cyno_count,
-    vc.systems                     AS venture_cyno_systems,
-    cl.current_ship_id             AS current_ship_type,
+    sc.fitted_count                AS ship_cyno_count,
+    sc.ships                       AS ship_cyno_list,
+    cur_ship_type.name             AS current_ship_name,
     cl_sys.name                    AS current_system,
     (
         SELECT COUNT(*)
@@ -69,10 +63,6 @@ JOIN corptools_skill s
     ON s.character_id = ca.id
    AND s.skill_id = %s
    AND s.active_skill_level >= 1
-LEFT JOIN corptools_skill mf
-    ON mf.character_id = ca.id
-   AND mf.skill_id = %s
-   AND mf.active_skill_level >= 1
 JOIN (
     SELECT character_id, MIN(start_date) AS first_seen
     FROM corptools_corporationhistory
@@ -80,24 +70,37 @@ JOIN (
 ) ch ON ch.character_id = ca.id
 LEFT JOIN (
     SELECT
-        v.character_id,
+        ship.character_id,
         COUNT(*) AS fitted_count,
-        GROUP_CONCAT(COALESCE(sys.name, 'unknown') ORDER BY sys.name SEPARATOR ', ') AS systems
-    FROM corptools_characterasset v
-    JOIN corptools_characterasset m
-        ON m.character_id = v.character_id
-       AND m.location_id  = v.item_id
-       AND m.location_flag LIKE 'HiSlot%%'
-       AND m.type_id      IN ({_CYNO_PLACEHOLDERS})
+        GROUP_CONCAT(
+            CONCAT(
+                COALESCE(ship_type.name, CONCAT('type ', ship.type_id)),
+                ' @ ',
+                COALESCE(sys.name, 'unknown')
+            )
+            ORDER BY ship_type.name SEPARATOR ', '
+        ) AS ships
+    FROM corptools_characterasset ship
+    LEFT JOIN eve_sde_itemtype ship_type
+        ON ship_type.id = ship.type_id
     LEFT JOIN corptools_evelocation loc
-        ON loc.location_id = v.location_name_id
+        ON loc.location_id = ship.location_name_id
     LEFT JOIN eve_sde_solarsystem sys
         ON sys.id = loc.system_id
-    WHERE v.type_id = %s
-    GROUP BY v.character_id
-) vc ON vc.character_id = ca.id
+    WHERE EXISTS (
+        SELECT 1
+        FROM corptools_characterasset cyno_mod
+        WHERE cyno_mod.character_id = ship.character_id
+          AND cyno_mod.location_id  = ship.item_id
+          AND cyno_mod.location_flag LIKE 'HiSlot%%'
+          AND cyno_mod.type_id IN ({_CYNO_PLACEHOLDERS})
+    )
+    GROUP BY ship.character_id
+) sc ON sc.character_id = ca.id
 LEFT JOIN corptools_characterlocation cl
     ON cl.character_id = ca.id
+LEFT JOIN eve_sde_itemtype cur_ship_type
+    ON cur_ship_type.id = cl.current_ship_id
 LEFT JOIN corptools_evelocation cl_loc
     ON cl_loc.location_id = cl.current_location_id
 LEFT JOIN eve_sde_solarsystem cl_sys
@@ -118,19 +121,16 @@ ORDER BY ch.first_seen DESC
 def _run_query(days: int):
     with connection.cursor() as cur:
         # Param order matches textual order of %s in SQL:
-        #   1. current_cyno_count scalar subquery  IN (...)      → 3
-        #   2. current_ozone_qty  scalar subquery  type_id = %s  → 1
-        #   3. cyno skill JOIN    skill_id = %s                  → 1
-        #   4. mining frigate JOIN skill_id = %s                 → 1
-        #   5. venture_cyno subquery IN (...) + v.type_id = %s   → 3 + 1
-        #   6. WHERE first_seen >= NOW() - INTERVAL %s DAY       → 1
+        #   1. current_cyno_count scalar subquery IN (...) → 3
+        #   2. current_ozone_qty  scalar subquery  = %s    → 1
+        #   3. cyno skill JOIN    skill_id = %s            → 1
+        #   4. ship_cyno EXISTS subquery IN (...)          → 3
+        #   5. WHERE first_seen days                       → 1
         cur.execute(SQL, [
             *CYNO_MODULE_TYPE_IDS,
             LIQUID_OZONE_TYPE_ID,
             CYNO_SKILL_ID,
-            MINING_FRIGATE_SKILL_ID,
             *CYNO_MODULE_TYPE_IDS,
-            VENTURE_TYPE_ID,
             days,
         ])
         cols = [c[0] for c in cur.description]
@@ -159,35 +159,29 @@ def _format_row(r: dict) -> str:
     else:
         main_line = "↳ ⚠️ **No auth ownership** — orphan / corp-roster only"
 
-    venture_line = (
-        f"↳ Venture: Mining Frigate L{r['venture_lvl']}"
-        if r['venture_lvl'] else ""
-    )
-
-    count = r['venture_cyno_count'] or 0
+    count = r['ship_cyno_count'] or 0
     if count:
-        systems = r['venture_cyno_systems'] or 'unknown'
+        ships = r['ship_cyno_list'] or 'unknown'
         cyno_asset_line = (
-            f"↳ ⚠️ **{count}× Venture with cyno fitted** — {systems}"
+            f"↳ ⚠️ **{count}× ship(s) with cyno fitted** — {ships}"
         )
     else:
-        cyno_asset_line = "↳ ✅ no Venture+cyno fitted in any hangar"
+        cyno_asset_line = "↳ ✅ no ships with cyno fitted in any hangar"
 
-    if r['current_ship_type'] == VENTURE_TYPE_ID:
+    if (r['current_cyno_count'] or 0):
+        ship_name = r['current_ship_name'] or 'unknown ship'
         where = r['current_system'] or 'unknown system'
-        cyno_mark = "✅ cyno" if (r['current_cyno_count'] or 0) else "❌ no cyno"
         ozone = int(r['current_ozone_qty'] or 0)
         ozone_mark = f"✅ {ozone}× ozone" if ozone else "❌ no ozone"
         current_ship_line = (
-            f"↳ 🚨 **Currently piloting a Venture** — {where} "
-            f"({cyno_mark}, {ozone_mark})"
+            f"↳ 🚨 **Currently piloting cyno-fit {ship_name}** "
+            f"— {where} ({ozone_mark})"
         )
     else:
         current_ship_line = ""
 
     return "\n".join(filter(None, [
-        head, main_line, venture_line,
-        cyno_asset_line, current_ship_line,
+        head, main_line, cyno_asset_line, current_ship_line,
     ]))
 
 

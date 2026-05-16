@@ -25,16 +25,14 @@ For each match, the embed shows:
 
 - The cyno character, their corp and alliance, and current cyno skill level.
 - The main character on their auth account, if linked.
-- The character's Mining Frigate level (the skill that lets them fly a
-  Venture — the cheapest cyno hull in the game), if trained.
-- A status line for the Venture-with-cyno-fitted asset check — ⚠️ with
-  count and system(s) when there's at least one hit, or ✅ confirming a
-  clean result otherwise.
-- A 🚨 highlight when the character's last-known active ship is itself
-  a Venture, with the system they're sitting in, **plus** whether that
-  specific ship has a cyno module fitted right now and how much
-  **Liquid Ozone** (the fuel a cyno actually burns) is in its cargo.
-  Both ✅ means they can light at a moment's notice.
+- A status line for the cyno-fitted asset check — ⚠️ with the count and
+  list of `<ship type> @ <system>` entries when there's at least one hit,
+  or ✅ confirming a clean result otherwise. Any hull counts — Venture,
+  Stratios, Black Ops battleship, etc.
+- A 🚨 highlight when the character's last-known active ship has a cyno
+  module fitted right now, naming the ship type and system plus how much
+  **Liquid Ozone** (the fuel a cyno actually burns) is in its cargo. ✅
+  ozone means they can light at a moment's notice.
 - A ⚠️ flag if the character has no auth ownership at all
   (i.e. it's in corptools via a corp roster scan but no user has claimed it).
 
@@ -42,9 +40,8 @@ For each match, the embed shows:
 
 > **Bob McCynoAlt** `[NEWCO/-NEWA-]` — 42d old, Cyno L4
 > ↳ Main: Alice Maincharacter `[GOODCO/GOOD]`
-> ↳ Venture: Mining Frigate L1
-> ↳ ⚠️ **1× Venture with cyno fitted** — Jita
-> ↳ 🚨 **Currently piloting a Venture** — Jita (✅ cyno, ✅ 400× ozone)
+> ↳ ⚠️ **2× ship(s) with cyno fitted** — Stratios @ 4-HWWF, Venture @ Jita
+> ↳ 🚨 **Currently piloting cyno-fit Stratios** — 4-HWWF (✅ 400× ozone)
 
 ## Requirements
 
@@ -58,8 +55,8 @@ For each match, the embed shows:
 The corptools **Skills** and **Assets** modules must be enabled and the
 relevant characters need to have registered with the
 `esi-skills.read_skills.v1` and `esi-assets.read_assets.v1` scopes.
-Without the Assets scope the Venture-with-cyno-fitted check will silently
-return no hits.
+Without the Assets scope the cyno-fitted-ship check will silently return
+no hits.
 
 ## Install
 
@@ -68,7 +65,7 @@ return no hits.
 Add to your AA `requirements.txt`:
 
 ```text
-git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.2.1
+git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.3.0
 ```
 
 Then in `local.py`:
@@ -134,20 +131,18 @@ The cog runs a single SQL query joining:
 
 - `corptools_skill` filtered to type ID 21603 (Cynosural Field Theory) at
   active level ≥ 1
-- `corptools_skill` again (left join) for type ID 32918 (Mining Frigate)
-  to surface Venture-flying capability
 - `corptools_corporationhistory` aggregated to `MIN(start_date)` per
   character (the same age proxy used by corptools' built-in
   `CharacterAgeFilter`)
-- `corptools_characterasset` self-joined to find Venture hulls
-  (type 32880) that have any cyno generator fitted in a high slot
-  (`location_flag LIKE 'HiSlot%'`, `type_id IN (21096, 52694, 28646)` —
-  regular, industrial, covert)
+- `corptools_characterasset` self-joined to find **any ship hull** that
+  has a cyno generator fitted in a high slot (`location_flag LIKE
+  'HiSlot%'`, `type_id IN (21096, 52694, 28646)` — regular, industrial,
+  covert)
+- `eve_sde_itemtype` to resolve ship type IDs to human names
 - `corptools_evelocation` → `eve_sde_solarsystem` to resolve where each
-  flagged Venture is parked
+  flagged ship is parked
 - `corptools_characterlocation` (joined to the same location/system
-  tables) to detect when the character's last-known active ship is a
-  Venture and surface the system they're in
+  tables) to detect the character's last-known active ship + system
 - Two scalar subqueries against `corptools_characterasset` keyed on
   `cl.current_ship_unique` (the unique item_id of that exact ship) to
   count cyno modules in any high slot and sum Liquid Ozone in the

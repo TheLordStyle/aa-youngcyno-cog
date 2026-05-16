@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-16
+
+### Changed
+- Cyno-fitted detection is no longer Venture-specific. The asset check now
+  matches **any ship hull** that has a cyno generator fitted in a high
+  slot, and reports the ship type alongside its system (e.g.
+  `Stratios @ 4-HWWF, Venture @ Jita`).
+- The currently-piloting highlight now fires whenever the character's
+  active ship has a cyno fitted, regardless of hull. The line names the
+  ship type and keeps the Liquid Ozone status indicator.
+
+### Removed
+- The Mining Frigate skill line. It only mattered when the cog was
+  Venture-specific; now that any hull counts, hull-flying skill detail
+  isn't actionable.
+- `MINING_FRIGATE_SKILL_ID` and `VENTURE_TYPE_ID` constants and the
+  Mining Frigate JOIN against `corptools_skill`.
+
+### Added
+- JOIN against `eve_sde_itemtype` to resolve ship type IDs to human names
+  for both the asset check and the currently-piloting line.
+
 ## [0.2.1] - 2026-05-16
 
 ### Changed
