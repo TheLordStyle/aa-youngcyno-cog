@@ -31,9 +31,9 @@ classifiers = [
 # Declaring them would risk pip resolving conflicting versions on install.
 
 [project.urls]
-Repository = "https://github.com/yourorg/aa-youngcyno-cog"
-Issues = "https://github.com/yourorg/aa-youngcyno-cog/issues"
-Changelog = "https://github.com/yourorg/aa-youngcyno-cog/blob/main/CHANGELOG.md"
+Repository = "https://github.com/TheLordStyle/aa-youngcyno-cog"
+Issues = "https://github.com/TheLordStyle/aa-youngcyno-cog/issues"
+Changelog = "https://github.com/TheLordStyle/aa-youngcyno-cog/blob/main/CHANGELOG.md"
 
 [tool.setuptools.packages.find]
 include = ["aa_youngcyno*"]
