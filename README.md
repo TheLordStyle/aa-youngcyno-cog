@@ -65,7 +65,7 @@ no hits.
 Add to your AA `requirements.txt`:
 
 ```text
-git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.3.2
+git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.4.0
 ```
 
 Then in `local.py`:
@@ -107,23 +107,37 @@ rebuild — production state always returns to whatever's pinned in
 
 ## Usage
 
-Prefix command:
+### Bulk scan
+
+Find every cyno-capable character younger than *N* days:
 
 ```text
 !youngcyno          # default: characters younger than 100 days
 !youngcyno 30       # characters younger than 30 days
 ```
 
-Slash command:
-
 ```text
 /youngcyno
 /youngcyno days:30
 ```
 
-Requires the AA permission `corptools.view_characteraudit`. Outside the
-allow-listed channels the prefix command reacts with 👎 and the slash
-command responds with an ephemeral error.
+### Single-character lookup
+
+Run the same per-character report against a specific named character,
+ignoring the cyno-skill and age filters (so you can investigate anyone,
+not just young cyno-trained chars):
+
+```text
+!cynocheck Bob McCynoAlt
+```
+
+```text
+/cynocheck character:Bob McCynoAlt
+```
+
+Both commands require the AA permission `corptools.view_characteraudit`.
+Outside the allow-listed channels the prefix commands react with 👎 and
+the slash commands respond with an ephemeral error.
 
 ## How it works
 
