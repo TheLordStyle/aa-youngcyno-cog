@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-16
+
+### Added
+- "Venture" line per match showing Mining Frigate skill level if trained
+  (the prerequisite for flying a Venture, the classic cheap cyno hull).
+- Asset scan: flags characters who currently have one or more Ventures
+  with a `Cynosural Field Generator I` actually fitted in a high slot,
+  with the system(s) the ship is parked in.
+
+### Removed
+- Discord user mention (`<@uid>`) from the output. The auth username is
+  still shown; look the user up in Discord manually if you need to ping
+  them.
+
+### Changed
+- SQL no longer joins `discord_discorduser`. Skill and asset joins added
+  against `corptools_skill`, `corptools_characterasset`,
+  `corptools_evelocation`, and `eve_sde_solarsystem`.
+
 ## [0.1.0] - 2026-05-16
 
 ### Added

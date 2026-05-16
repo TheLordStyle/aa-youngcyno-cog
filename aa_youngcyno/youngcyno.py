@@ -12,8 +12,13 @@ from django.db import connection
 
 logger = logging.getLogger(__name__)
 
-CYNO_TYPE_ID = 21603  # Cynosural Field Theory
+CYNO_SKILL_ID = 21603            # Cynosural Field Theory
+MINING_FRIGATE_SKILL_ID = 32918  # required to fly a Venture
+VENTURE_TYPE_ID = 32880
+CYNO_MODULE_TYPE_ID = 21096      # Cynosural Field Generator I
 
+# `LIKE 'HiSlot%%'` — the `%` is doubled because Django's cursor.execute
+# treats the SQL string as a printf-style template for parameter substitution.
 SQL = """
 SELECT
     ec.character_name              AS cyno_char,
@@ -23,9 +28,11 @@ SELECT
     main.corporation_ticker        AS main_corp,
     main.alliance_ticker           AS main_ally,
     au.username                    AS auth_user,
-    dd.uid                         AS discord_uid,
     DATEDIFF(NOW(), ch.first_seen) AS days_old,
-    s.active_skill_level           AS cyno_lvl
+    s.active_skill_level           AS cyno_lvl,
+    mf.active_skill_level          AS venture_lvl,
+    vc.fitted_count                AS venture_cyno_count,
+    vc.systems                     AS venture_cyno_systems
 FROM corptools_characteraudit ca
 JOIN eveonline_evecharacter ec
     ON ec.id = ca.character_id
@@ -33,11 +40,33 @@ JOIN corptools_skill s
     ON s.character_id = ca.id
    AND s.skill_id = %s
    AND s.active_skill_level >= 1
+LEFT JOIN corptools_skill mf
+    ON mf.character_id = ca.id
+   AND mf.skill_id = %s
+   AND mf.active_skill_level >= 1
 JOIN (
     SELECT character_id, MIN(start_date) AS first_seen
     FROM corptools_corporationhistory
     GROUP BY character_id
 ) ch ON ch.character_id = ca.id
+LEFT JOIN (
+    SELECT
+        v.character_id,
+        COUNT(*) AS fitted_count,
+        GROUP_CONCAT(COALESCE(sys.name, 'unknown') ORDER BY sys.name SEPARATOR ', ') AS systems
+    FROM corptools_characterasset v
+    JOIN corptools_characterasset m
+        ON m.character_id = v.character_id
+       AND m.location_id  = v.item_id
+       AND m.location_flag LIKE 'HiSlot%%'
+       AND m.type_id      = %s
+    LEFT JOIN corptools_evelocation loc
+        ON loc.location_id = v.location_name_id
+    LEFT JOIN eve_sde_solarsystem sys
+        ON sys.id = loc.system_id
+    WHERE v.type_id = %s
+    GROUP BY v.character_id
+) vc ON vc.character_id = ca.id
 LEFT JOIN authentication_characterownership co
     ON co.character_id = ec.id
 LEFT JOIN auth_user au
@@ -46,8 +75,6 @@ LEFT JOIN authentication_userprofile up
     ON up.user_id = co.user_id
 LEFT JOIN eveonline_evecharacter main
     ON main.id = up.main_character_id
-LEFT JOIN discord_discorduser dd
-    ON dd.user_id = co.user_id
 WHERE ch.first_seen >= DATE_SUB(NOW(), INTERVAL %s DAY)
 ORDER BY ch.first_seen DESC
 """
@@ -55,7 +82,13 @@ ORDER BY ch.first_seen DESC
 
 def _run_query(days: int):
     with connection.cursor() as cur:
-        cur.execute(SQL, [CYNO_TYPE_ID, days])
+        cur.execute(SQL, [
+            CYNO_SKILL_ID,
+            MINING_FRIGATE_SKILL_ID,
+            CYNO_MODULE_TYPE_ID,
+            VENTURE_TYPE_ID,
+            days,
+        ])
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
@@ -82,14 +115,25 @@ def _format_row(r: dict) -> str:
     else:
         main_line = "↳ ⚠️ **No auth ownership** — orphan / corp-roster only"
 
-    bits = []
-    if r['auth_user']:
-        bits.append(f"`{r['auth_user']}`")
-    if r['discord_uid']:
-        bits.append(f"<@{r['discord_uid']}>")
-    user_line = f"↳ User: {' '.join(bits)}" if bits else ""
+    user_line = f"↳ User: `{r['auth_user']}`" if r['auth_user'] else ""
 
-    return "\n".join(filter(None, [head, main_line, user_line]))
+    venture_line = (
+        f"↳ Venture: Mining Frigate L{r['venture_lvl']}"
+        if r['venture_lvl'] else ""
+    )
+
+    count = r['venture_cyno_count'] or 0
+    if count:
+        systems = r['venture_cyno_systems'] or 'unknown'
+        cyno_asset_line = (
+            f"↳ ⚠️ **{count}× Venture with cyno fitted** — {systems}"
+        )
+    else:
+        cyno_asset_line = ""
+
+    return "\n".join(filter(None, [
+        head, main_line, user_line, venture_line, cyno_asset_line,
+    ]))
 
 
 def _build_embeds(rows, days: int):
