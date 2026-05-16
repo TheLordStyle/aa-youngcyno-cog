@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-16
+
+### Changed
+- The Venture-with-cyno-fitted asset check now always renders a line per
+  character, so a clean result is explicit instead of silent. Hits still
+  show the ⚠️ count + systems; misses show `✅ no Venture+cyno fitted
+  in any hangar`.
+
+### Removed
+- The standalone `↳ User: <auth_user>` line. It was a holdover from the
+  Discord-mention output and the same identity is already conveyed by
+  the `↳ Main:` line in every case where a user is linked.
+
 ## [0.2.0] - 2026-05-16
 
 ### Added

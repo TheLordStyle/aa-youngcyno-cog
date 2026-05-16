@@ -25,12 +25,11 @@ For each match, the embed shows:
 
 - The cyno character, their corp and alliance, and current cyno skill level.
 - The main character on their auth account, if linked.
-- The auth username if the account is linked.
 - The character's Mining Frigate level (the skill that lets them fly a
   Venture — the cheapest cyno hull in the game), if trained.
-- A ⚠️ flag listing every Venture they currently own with **any cyno
-  generator** actually fitted (regular, industrial, or covert), plus the
-  system the ship is parked in.
+- A status line for the Venture-with-cyno-fitted asset check — ⚠️ with
+  count and system(s) when there's at least one hit, or ✅ confirming a
+  clean result otherwise.
 - A 🚨 highlight when the character's last-known active ship is itself
   a Venture, with the system they're sitting in, **plus** whether that
   specific ship has a cyno module fitted right now and how much
@@ -43,7 +42,6 @@ For each match, the embed shows:
 
 > **Bob McCynoAlt** `[NEWCO/-NEWA-]` — 42d old, Cyno L4
 > ↳ Main: Alice Maincharacter `[GOODCO/GOOD]`
-> ↳ User: `alice_user`
 > ↳ Venture: Mining Frigate L1
 > ↳ ⚠️ **1× Venture with cyno fitted** — Jita
 > ↳ 🚨 **Currently piloting a Venture** — Jita (✅ cyno, ✅ 400× ozone)
@@ -70,7 +68,7 @@ return no hits.
 Add to your AA `requirements.txt`:
 
 ```text
-git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.2.0
+git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.2.1
 ```
 
 Then in `local.py`:
