@@ -55,7 +55,7 @@ registered with the `esi-skills.read_skills.v1` scope.
 Add to your AA `requirements.txt`:
 
 ```text
-git+https://github.com/yourorg/aa-youngcyno-cog.git@v0.1.0
+git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.1.0
 ```
 
 Then in `local.py`:
