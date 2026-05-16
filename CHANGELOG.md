@@ -13,8 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - "Venture" line per match showing Mining Frigate skill level if trained
   (the prerequisite for flying a Venture, the classic cheap cyno hull).
 - Asset scan: flags characters who currently have one or more Ventures
-  with a `Cynosural Field Generator I` actually fitted in a high slot,
-  with the system(s) the ship is parked in.
+  with a cyno generator actually fitted in a high slot (any of: regular
+  `Cynosural Field Generator I`, `Industrial Cynosural Field Generator I`,
+  or `Covert Cynosural Field Generator I`), with the system(s) the ship
+  is parked in.
 
 ### Removed
 - Discord user mention (`<@uid>`) from the output. The auth username is

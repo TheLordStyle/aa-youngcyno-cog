@@ -28,9 +28,9 @@ For each match, the embed shows:
 - The auth username if the account is linked.
 - The character's Mining Frigate level (the skill that lets them fly a
   Venture — the cheapest cyno hull in the game), if trained.
-- A ⚠️ flag listing every Venture they currently own with a
-  **Cynosural Field Generator I** actually fitted, plus the system the
-  ship is parked in.
+- A ⚠️ flag listing every Venture they currently own with **any cyno
+  generator** actually fitted (regular, industrial, or covert), plus the
+  system the ship is parked in.
 - A ⚠️ flag if the character has no auth ownership at all
   (i.e. it's in corptools via a corp roster scan but no user has claimed it).
 
@@ -136,8 +136,9 @@ The cog runs a single SQL query joining:
   character (the same age proxy used by corptools' built-in
   `CharacterAgeFilter`)
 - `corptools_characterasset` self-joined to find Venture hulls
-  (type 32880) that have a Cynosural Field Generator I (type 21096)
-  fitted in any high slot (`location_flag LIKE 'HiSlot%'`)
+  (type 32880) that have any cyno generator fitted in a high slot
+  (`location_flag LIKE 'HiSlot%'`, `type_id IN (21096, 52694, 28646)` —
+  regular, industrial, covert)
 - `corptools_evelocation` → `eve_sde_solarsystem` to resolve where each
   flagged Venture is parked
 - Alliance Auth's `CharacterOwnership` / `UserProfile` to resolve the main

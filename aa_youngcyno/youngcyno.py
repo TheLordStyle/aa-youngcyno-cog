@@ -15,11 +15,21 @@ logger = logging.getLogger(__name__)
 CYNO_SKILL_ID = 21603            # Cynosural Field Theory
 MINING_FRIGATE_SKILL_ID = 32918  # required to fly a Venture
 VENTURE_TYPE_ID = 32880
-CYNO_MODULE_TYPE_ID = 21096      # Cynosural Field Generator I
+
+# Every high-slot module that lights a cyno. Covert is included even though
+# it can't physically fit on a Venture — the asset-fitted self-join filters
+# by what's actually mounted, so listing it is harmless and future-proofs
+# the check if we ever broaden the hull filter beyond Venture.
+CYNO_MODULE_TYPE_IDS = (
+    21096,  # Cynosural Field Generator I        — regular
+    52694,  # Industrial Cynosural Field Generator I
+    28646,  # Covert Cynosural Field Generator I — black ops / covert ops
+)
+_CYNO_PLACEHOLDERS = ", ".join(["%s"] * len(CYNO_MODULE_TYPE_IDS))
 
 # `LIKE 'HiSlot%%'` — the `%` is doubled because Django's cursor.execute
 # treats the SQL string as a printf-style template for parameter substitution.
-SQL = """
+SQL = f"""
 SELECT
     ec.character_name              AS cyno_char,
     ec.corporation_ticker          AS cyno_corp,
@@ -59,7 +69,7 @@ LEFT JOIN (
         ON m.character_id = v.character_id
        AND m.location_id  = v.item_id
        AND m.location_flag LIKE 'HiSlot%%'
-       AND m.type_id      = %s
+       AND m.type_id      IN ({_CYNO_PLACEHOLDERS})
     LEFT JOIN corptools_evelocation loc
         ON loc.location_id = v.location_name_id
     LEFT JOIN eve_sde_solarsystem sys
@@ -85,7 +95,7 @@ def _run_query(days: int):
         cur.execute(SQL, [
             CYNO_SKILL_ID,
             MINING_FRIGATE_SKILL_ID,
-            CYNO_MODULE_TYPE_ID,
+            *CYNO_MODULE_TYPE_IDS,
             VENTURE_TYPE_ID,
             days,
         ])
