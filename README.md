@@ -65,7 +65,7 @@ no hits.
 Add to your AA `requirements.txt`:
 
 ```text
-git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.3.1
+git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.3.2
 ```
 
 Then in `local.py`:

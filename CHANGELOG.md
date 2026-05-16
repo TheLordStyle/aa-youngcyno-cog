@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-05-16
+
+### Performance
+- The character-age threshold is now applied inside the corp-history
+  aggregate via `HAVING first_seen >= DATE_SUB(NOW(), INTERVAL %s DAY)`
+  rather than the outer `WHERE`. The derived table now materializes only
+  the young chars instead of every character in the DB, so all
+  downstream LEFT JOINs and the per-row scalar subqueries operate on a
+  pre-pruned set.
+
 ## [0.3.1] - 2026-05-16
 
 ### Performance
