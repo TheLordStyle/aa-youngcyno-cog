@@ -68,34 +68,31 @@ JOIN (
     FROM corptools_corporationhistory
     GROUP BY character_id
 ) ch ON ch.character_id = ca.id
+-- Driven from the cyno-module side (very selective: only a handful of
+-- type_ids), then joined up to the parent ship. The previous shape — scan
+-- every ship-asset row then EXISTS — exploded on large asset tables.
 LEFT JOIN (
     SELECT
-        ship.character_id,
-        COUNT(*) AS fitted_count,
-        GROUP_CONCAT(
-            CONCAT(
-                COALESCE(ship_type.name, CONCAT('type ', ship.type_id)),
-                ' @ ',
-                COALESCE(sys.name, 'unknown')
-            )
-            ORDER BY ship_type.name SEPARATOR ', '
-        ) AS ships
-    FROM corptools_characterasset ship
+        cyno_mod.character_id,
+        COUNT(DISTINCT ship.item_id) AS fitted_count,
+        GROUP_CONCAT(DISTINCT CONCAT(
+            COALESCE(ship_type.name, CONCAT('type ', ship.type_id)),
+            ' @ ',
+            COALESCE(sys.name, 'unknown')
+        ) SEPARATOR ', ') AS ships
+    FROM corptools_characterasset cyno_mod
+    JOIN corptools_characterasset ship
+        ON ship.character_id = cyno_mod.character_id
+       AND ship.item_id      = cyno_mod.location_id
     LEFT JOIN eve_sde_itemtype ship_type
         ON ship_type.id = ship.type_id
     LEFT JOIN corptools_evelocation loc
         ON loc.location_id = ship.location_name_id
     LEFT JOIN eve_sde_solarsystem sys
         ON sys.id = loc.system_id
-    WHERE EXISTS (
-        SELECT 1
-        FROM corptools_characterasset cyno_mod
-        WHERE cyno_mod.character_id = ship.character_id
-          AND cyno_mod.location_id  = ship.item_id
-          AND cyno_mod.location_flag LIKE 'HiSlot%%'
-          AND cyno_mod.type_id IN ({_CYNO_PLACEHOLDERS})
-    )
-    GROUP BY ship.character_id
+    WHERE cyno_mod.location_flag LIKE 'HiSlot%%'
+      AND cyno_mod.type_id IN ({_CYNO_PLACEHOLDERS})
+    GROUP BY cyno_mod.character_id
 ) sc ON sc.character_id = ca.id
 LEFT JOIN corptools_characterlocation cl
     ON cl.character_id = ca.id
