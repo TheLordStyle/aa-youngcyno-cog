@@ -31,6 +31,8 @@ For each match, the embed shows:
 - A ⚠️ flag listing every Venture they currently own with **any cyno
   generator** actually fitted (regular, industrial, or covert), plus the
   system the ship is parked in.
+- A 🚨 highlight when the character's last-known active ship is itself
+  a Venture, with the system they're sitting in.
 - A ⚠️ flag if the character has no auth ownership at all
   (i.e. it's in corptools via a corp roster scan but no user has claimed it).
 
@@ -41,6 +43,7 @@ For each match, the embed shows:
 > ↳ User: `alice_user`
 > ↳ Venture: Mining Frigate L1
 > ↳ ⚠️ **1× Venture with cyno fitted** — Jita
+> ↳ 🚨 **Currently piloting a Venture** — Jita
 
 ## Requirements
 
@@ -141,6 +144,9 @@ The cog runs a single SQL query joining:
   regular, industrial, covert)
 - `corptools_evelocation` → `eve_sde_solarsystem` to resolve where each
   flagged Venture is parked
+- `corptools_characterlocation` (joined to the same location/system
+  tables) to detect when the character's last-known active ship is a
+  Venture and surface the system they're in
 - Alliance Auth's `CharacterOwnership` / `UserProfile` to resolve the main
   character and auth user
 

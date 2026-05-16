@@ -42,7 +42,9 @@ SELECT
     s.active_skill_level           AS cyno_lvl,
     mf.active_skill_level          AS venture_lvl,
     vc.fitted_count                AS venture_cyno_count,
-    vc.systems                     AS venture_cyno_systems
+    vc.systems                     AS venture_cyno_systems,
+    cl.current_ship_id             AS current_ship_type,
+    cl_sys.name                    AS current_system
 FROM corptools_characteraudit ca
 JOIN eveonline_evecharacter ec
     ON ec.id = ca.character_id
@@ -77,6 +79,12 @@ LEFT JOIN (
     WHERE v.type_id = %s
     GROUP BY v.character_id
 ) vc ON vc.character_id = ca.id
+LEFT JOIN corptools_characterlocation cl
+    ON cl.character_id = ca.id
+LEFT JOIN corptools_evelocation cl_loc
+    ON cl_loc.location_id = cl.current_location_id
+LEFT JOIN eve_sde_solarsystem cl_sys
+    ON cl_sys.id = cl_loc.system_id
 LEFT JOIN authentication_characterownership co
     ON co.character_id = ec.id
 LEFT JOIN auth_user au
@@ -141,8 +149,15 @@ def _format_row(r: dict) -> str:
     else:
         cyno_asset_line = ""
 
+    if r['current_ship_type'] == VENTURE_TYPE_ID:
+        where = r['current_system'] or 'unknown system'
+        current_ship_line = f"↳ 🚨 **Currently piloting a Venture** — {where}"
+    else:
+        current_ship_line = ""
+
     return "\n".join(filter(None, [
-        head, main_line, user_line, venture_line, cyno_asset_line,
+        head, main_line, user_line, venture_line,
+        cyno_asset_line, current_ship_line,
     ]))
 
 

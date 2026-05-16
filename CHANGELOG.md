@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Cynosural Field Generator I`, `Industrial Cynosural Field Generator I`,
   or `Covert Cynosural Field Generator I`), with the system(s) the ship
   is parked in.
+- 🚨 highlight when the character's last-known active ship (per
+  `corptools_characterlocation`) is a Venture, including the system
+  they're currently in.
 
 ### Removed
 - Discord user mention (`<@uid>`) from the output. The auth username is
@@ -24,8 +27,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   them.
 
 ### Changed
-- SQL no longer joins `discord_discorduser`. Skill and asset joins added
-  against `corptools_skill`, `corptools_characterasset`,
+- SQL no longer joins `discord_discorduser`. Skill, asset, and
+  current-location joins added against `corptools_skill`,
+  `corptools_characterasset`, `corptools_characterlocation`,
   `corptools_evelocation`, and `eve_sde_solarsystem`.
 
 ## [0.1.0] - 2026-05-16
