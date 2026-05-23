@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-16
+
+### Added
+- New `!cynosystem <name>` / `/cynosystem system:<name>` command. Lists
+  every character with at least one cyno-fit ship in that solar system,
+  whether they're currently sitting in one of those ships there or it's
+  parked in a station / citadel in that system. The per-character ship
+  list is scoped to that system; the current-ship line still reports
+  wherever they're actually flying right now.
+- `cynocheck` gained an `include_siblings` option (default false). When
+  enabled, the report includes every other character linked to the same
+  Alliance Auth user via `authentication_characterownership.user_id`, in
+  addition to the named character.
+- `!cynocheck +alts <name>` shortcut for the prefix-command form of the
+  siblings option.
+
+### Changed
+- The SQL is now built from one shared template (`_sql(...)`) with three
+  variation points: `filter_block` (skill/age JOIN shape), `asset_join`
+  (`LEFT JOIN` vs `INNER JOIN` for the cyno-asset subquery), and
+  `asset_extra` (the in-subquery system filter). The four variants
+  (`SQL_BULK`, `SQL_SINGLE`, `SQL_SINGLE_WITH_SIBLINGS`, `SQL_SYSTEM`)
+  reuse the same SELECT clause and the same downstream JOIN tail.
+
 ## [0.4.0] - 2026-05-16
 
 ### Added
