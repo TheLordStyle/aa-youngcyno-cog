@@ -1,4 +1,4 @@
-"""YoungCyno: surface recently created cyno-capable characters."""
+"""YoungCyno: surface cyno-capable characters."""
 import logging
 
 from aadiscordbot.app_settings import get_all_servers
@@ -15,7 +15,6 @@ logger = logging.getLogger(__name__)
 CYNO_SKILL_ID = 21603            # Cynosural Field Theory
 LIQUID_OZONE_TYPE_ID = 16273     # required in cargo to actually light a cyno
 
-# Every high-slot module that lights a cyno.
 CYNO_MODULE_TYPE_IDS = (
     21096,  # Cynosural Field Generator I        — regular
     52694,  # Industrial Cynosural Field Generator I
@@ -23,13 +22,18 @@ CYNO_MODULE_TYPE_IDS = (
 )
 _CYNO_PLACEHOLDERS = ", ".join(["%s"] * len(CYNO_MODULE_TYPE_IDS))
 
-# Shared SELECT clause + JOIN tail used by both bulk and single-char queries.
-# Kept as one string so the two query variants only differ in their filter
-# JOINs/WHEREs and stay visually parallel.
-#
-# `LIKE 'HiSlot%%'` — the `%` is doubled because Django's cursor.execute
-# treats the SQL string as a printf-style template for parameter substitution.
-_SELECT_AND_TAIL = f"""
+
+def _sql(*, filter_block: str, asset_join: str, asset_extra: str, tail: str) -> str:
+    """Compose a query variant. The SELECT clause + most of the JOIN chain
+    is shared; the variants only differ in which characters they target
+    (filter_block, tail) and whether the cyno-asset subquery restricts to
+    ships in a given system (asset_extra) and excludes characters with no
+    such ship (asset_join = INNER vs LEFT).
+
+    `LIKE 'HiSlot%%'` — the `%` is doubled because Django's cursor.execute
+    treats the SQL string as a printf-style template.
+    """
+    return f"""
 SELECT
     ec.character_name              AS cyno_char,
     ec.corporation_ticker          AS cyno_corp,
@@ -63,11 +67,8 @@ SELECT
 FROM corptools_characteraudit ca
 JOIN eveonline_evecharacter ec
     ON ec.id = ca.character_id
-{{filter_block}}
--- Driven from the cyno-module side (very selective: only a handful of
--- type_ids), then joined up to the parent ship. The previous shape — scan
--- every ship-asset row then EXISTS — exploded on large asset tables.
-LEFT JOIN (
+{filter_block}
+{asset_join} (
     SELECT
         cyno_mod.character_id,
         COUNT(DISTINCT ship.item_id) AS fitted_count,
@@ -88,6 +89,7 @@ LEFT JOIN (
         ON sys.id = loc.system_id
     WHERE cyno_mod.location_flag LIKE 'HiSlot%%'
       AND cyno_mod.type_id IN ({_CYNO_PLACEHOLDERS})
+      {asset_extra}
     GROUP BY cyno_mod.character_id
 ) sc ON sc.character_id = ca.id
 LEFT JOIN corptools_characterlocation cl
@@ -106,33 +108,28 @@ LEFT JOIN authentication_userprofile up
     ON up.user_id = co.user_id
 LEFT JOIN eveonline_evecharacter main
     ON main.id = up.main_character_id
-{{tail}}
+{tail}
 """
 
-# Bulk: require cyno skill + corp-history age threshold.
-SQL_BULK = _SELECT_AND_TAIL.format(
+
+SQL_BULK = _sql(
     filter_block="""\
 JOIN corptools_skill s
     ON s.character_id = ca.id
    AND s.skill_id = %s
    AND s.active_skill_level >= 1
 JOIN (
-    -- Apply the age threshold inside the aggregate so the joined-back set
-    -- is just "young chars", not "every char in the DB". Without this, the
-    -- subquery propagates one row per character into every downstream
-    -- LEFT JOIN and scalar subquery before the outer WHERE prunes them.
     SELECT character_id, MIN(start_date) AS first_seen
     FROM corptools_corporationhistory
     GROUP BY character_id
     HAVING first_seen >= DATE_SUB(NOW(), INTERVAL %s DAY)
 ) ch ON ch.character_id = ca.id""",
+    asset_join="LEFT JOIN",
+    asset_extra="",
     tail="ORDER BY ch.first_seen DESC",
 )
 
-# Single: no skill filter (so non-cyno-skilled chars still surface for
-# investigation), no age filter, just match by character name.
-SQL_SINGLE = _SELECT_AND_TAIL.format(
-    filter_block="""\
+_DISPLAY_ONLY_SKILL_HISTORY = """\
 LEFT JOIN corptools_skill s
     ON s.character_id = ca.id
    AND s.skill_id = %s
@@ -140,22 +137,53 @@ LEFT JOIN (
     SELECT character_id, MIN(start_date) AS first_seen
     FROM corptools_corporationhistory
     GROUP BY character_id
-) ch ON ch.character_id = ca.id""",
+) ch ON ch.character_id = ca.id"""
+
+SQL_SINGLE = _sql(
+    filter_block=_DISPLAY_ONLY_SKILL_HISTORY,
+    asset_join="LEFT JOIN",
+    asset_extra="",
     tail="WHERE ec.character_name = %s",
 )
+
+SQL_SINGLE_WITH_SIBLINGS = _sql(
+    filter_block=_DISPLAY_ONLY_SKILL_HISTORY,
+    asset_join="LEFT JOIN",
+    asset_extra="",
+    tail="""\
+WHERE ec.id IN (
+    -- the named character (always, even if not linked to an auth user)
+    SELECT id FROM eveonline_evecharacter WHERE character_name = %s
+    UNION
+    -- every other character linked to the same auth user, if any
+    SELECT co.character_id
+    FROM authentication_characterownership co
+    WHERE co.user_id = (
+        SELECT my_co.user_id
+        FROM authentication_characterownership my_co
+        JOIN eveonline_evecharacter target ON target.id = my_co.character_id
+        WHERE target.character_name = %s
+    )
+)
+ORDER BY ec.character_name""",
+)
+
+SQL_SYSTEM = _sql(
+    filter_block=_DISPLAY_ONLY_SKILL_HISTORY,
+    asset_join="INNER JOIN",  # drop chars with no cyno-fit ship in this system
+    asset_extra="AND sys.name = %s",
+    tail="ORDER BY ec.character_name",
+)
+
+
+def _cur_cyno_and_ozone_params():
+    return [*CYNO_MODULE_TYPE_IDS, LIQUID_OZONE_TYPE_ID]
 
 
 def _run_bulk_query(days: int):
     with connection.cursor() as cur:
-        # Textual %s order in SQL_BULK:
-        #   1. current_cyno_count scalar subquery IN (...) → 3
-        #   2. current_ozone_qty  scalar subquery  = %s    → 1
-        #   3. cyno skill JOIN    skill_id = %s            → 1
-        #   4. corp history HAVING first_seen days         → 1
-        #   5. ship_cyno subquery IN (...)                 → 3
         cur.execute(SQL_BULK, [
-            *CYNO_MODULE_TYPE_IDS,
-            LIQUID_OZONE_TYPE_ID,
+            *_cur_cyno_and_ozone_params(),
             CYNO_SKILL_ID,
             days,
             *CYNO_MODULE_TYPE_IDS,
@@ -164,20 +192,30 @@ def _run_bulk_query(days: int):
         return [dict(zip(cols, row)) for row in cur.fetchall()]
 
 
-def _run_single_query(name: str):
+def _run_single_query(name: str, include_siblings: bool = False):
+    sql = SQL_SINGLE_WITH_SIBLINGS if include_siblings else SQL_SINGLE
+    params = [
+        *_cur_cyno_and_ozone_params(),
+        CYNO_SKILL_ID,
+        *CYNO_MODULE_TYPE_IDS,
+    ]
+    if include_siblings:
+        params += [name, name]
+    else:
+        params += [name]
     with connection.cursor() as cur:
-        # Textual %s order in SQL_SINGLE:
-        #   1. current_cyno_count scalar subquery IN (...) → 3
-        #   2. current_ozone_qty  scalar subquery  = %s    → 1
-        #   3. cyno skill LEFT JOIN skill_id = %s          → 1
-        #   4. ship_cyno subquery IN (...)                 → 3
-        #   5. WHERE ec.character_name = %s                → 1
-        cur.execute(SQL_SINGLE, [
-            *CYNO_MODULE_TYPE_IDS,
-            LIQUID_OZONE_TYPE_ID,
+        cur.execute(sql, params)
+        cols = [c[0] for c in cur.description]
+        return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def _run_system_query(system: str):
+    with connection.cursor() as cur:
+        cur.execute(SQL_SYSTEM, [
+            *_cur_cyno_and_ozone_params(),
             CYNO_SKILL_ID,
             *CYNO_MODULE_TYPE_IDS,
-            name,
+            system,
         ])
         cols = [c[0] for c in cur.description]
         return [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -314,23 +352,42 @@ class YoungCyno(commands.Cog):
     @commands.command(pass_context=True)
     @sender_has_perm('corptools.view_characteraudit')
     async def cynocheck(self, ctx, *, character: str = None):
+        """Usage:
+            !cynocheck <character name>
+            !cynocheck +alts <character name>   (also report linked alts)
+        """
         if not _channel_allowed(ctx.message.channel.id):
             return await ctx.message.add_reaction(chr(0x1F44E))
         if not character:
             return await ctx.message.reply(
-                "Usage: `!cynocheck <character name>`"
+                "Usage: `!cynocheck <name>` or `!cynocheck +alts <name>`"
             )
 
-        name = character.strip()
-        rows = _run_single_query(name)
-        title = f"Cyno report: {name}"
-        empty = f"`{name}` not found in corptools (unknown character or not yet scanned)."
+        text = character.strip()
+        include_siblings = False
+        if text.lower().startswith("+alts"):
+            include_siblings = True
+            text = text.split(None, 1)[1].strip() if " " in text else ""
+        if not text:
+            return await ctx.message.reply(
+                "Usage: `!cynocheck +alts <name>`"
+            )
+
+        rows = await self._do_single(text, include_siblings)
+        title = self._single_title(text, include_siblings)
+        empty = self._single_empty(text, include_siblings)
         for embed in _build_embeds(rows, title, empty_message=empty):
             await ctx.message.reply(embed=embed)
 
     @commands.slash_command(name='cynocheck', guild_ids=get_all_servers())
     @option("character", description="Exact character name", required=True)
-    async def slash_cynocheck(self, ctx, character: str):
+    @option(
+        "include_siblings",
+        description="Also report all other characters linked to the same AA user",
+        required=False,
+        default=False,
+    )
+    async def slash_cynocheck(self, ctx, character: str, include_siblings: bool = False):
         try:
             in_channels(ctx.channel.id, getattr(
                 settings, "YOUNG_CYNO_DISCORD_BOT_CHANNELS", []
@@ -342,9 +399,73 @@ class YoungCyno(commands.Cog):
 
         name = character.strip()
         await ctx.defer()
-        rows = _run_single_query(name)
-        title = f"Cyno report: {name}"
-        empty = f"`{name}` not found in corptools (unknown character or not yet scanned)."
+        rows = await self._do_single(name, include_siblings)
+        title = self._single_title(name, include_siblings)
+        empty = self._single_empty(name, include_siblings)
+        embeds = _build_embeds(rows, title, empty_message=empty)
+        await ctx.respond(embed=embeds[0])
+        for e in embeds[1:]:
+            await ctx.followup.send(embed=e)
+
+    async def _do_single(self, name: str, include_siblings: bool):
+        return _run_single_query(name, include_siblings=include_siblings)
+
+    @staticmethod
+    def _single_title(name: str, include_siblings: bool) -> str:
+        return (
+            f"Cyno report: {name} + linked alts"
+            if include_siblings else f"Cyno report: {name}"
+        )
+
+    @staticmethod
+    def _single_empty(name: str, include_siblings: bool) -> str:
+        if include_siblings:
+            return (
+                f"`{name}` not found in corptools, and no linked alts were "
+                f"found either."
+            )
+        return f"`{name}` not found in corptools (unknown character or not yet scanned)."
+
+    # ---- system lookup ----------------------------------------------------
+
+    @commands.command(pass_context=True)
+    @sender_has_perm('corptools.view_characteraudit')
+    async def cynosystem(self, ctx, *, system: str = None):
+        """List every character with a cyno-fit ship currently in the given
+        system (whether they're sitting in it or it's parked in a station
+        or citadel there).
+        """
+        if not _channel_allowed(ctx.message.channel.id):
+            return await ctx.message.add_reaction(chr(0x1F44E))
+        if not system:
+            return await ctx.message.reply(
+                "Usage: `!cynosystem <system name>`"
+            )
+
+        name = system.strip()
+        rows = _run_system_query(name)
+        title = f"Cyno-fit ships in {name}"
+        empty = f"No characters have a cyno-fit ship in `{name}`."
+        for embed in _build_embeds(rows, title, empty_message=empty):
+            await ctx.message.reply(embed=embed)
+
+    @commands.slash_command(name='cynosystem', guild_ids=get_all_servers())
+    @option("system", description="Exact system name (e.g. Jita, 4-HWWF)", required=True)
+    async def slash_cynosystem(self, ctx, system: str):
+        try:
+            in_channels(ctx.channel.id, getattr(
+                settings, "YOUNG_CYNO_DISCORD_BOT_CHANNELS", []
+            ))
+        except commands.MissingPermissions:
+            return await ctx.respond(
+                "This command isn't available in this channel.", ephemeral=True
+            )
+
+        name = system.strip()
+        await ctx.defer()
+        rows = _run_system_query(name)
+        title = f"Cyno-fit ships in {name}"
+        empty = f"No characters have a cyno-fit ship in `{name}`."
         embeds = _build_embeds(rows, title, empty_message=empty)
         await ctx.respond(embed=embeds[0])
         for e in embeds[1:]:

@@ -65,7 +65,7 @@ no hits.
 Add to your AA `requirements.txt`:
 
 ```text
-git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.4.0
+git+https://github.com/TheLordStyle/aa-youngcyno-cog.git@v0.5.0
 ```
 
 Then in `local.py`:
@@ -129,13 +129,40 @@ not just young cyno-trained chars):
 
 ```text
 !cynocheck Bob McCynoAlt
+!cynocheck +alts Bob McCynoAlt           # also report every linked alt
 ```
 
 ```text
 /cynocheck character:Bob McCynoAlt
+/cynocheck character:Bob McCynoAlt include_siblings:true
 ```
 
-Both commands require the AA permission `corptools.view_characteraudit`.
+With `+alts` / `include_siblings:true`, the report covers every other
+character registered to the same Alliance Auth user account, not just
+the named character. Useful for "show me the whole stable, not just this
+one alt".
+
+### System lookup
+
+List every character with at least one cyno-fit ship in a given solar
+system — whether they're currently piloting one of those ships there or
+it's parked in a station / citadel in that system:
+
+```text
+!cynosystem Jita
+!cynosystem 4-HWWF
+```
+
+```text
+/cynosystem system:Jita
+```
+
+The per-character ship list in the output is scoped to ships in the
+requested system; the 🚨 currently-piloting line, when shown, still
+reports wherever the character is *actually* flying right now (which may
+or may not be the requested system).
+
+All commands require the AA permission `corptools.view_characteraudit`.
 Outside the allow-listed channels the prefix commands react with 👎 and
 the slash commands respond with an ephemeral error.
 
